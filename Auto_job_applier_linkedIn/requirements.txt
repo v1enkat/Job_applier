@@ -1,0 +1,17 @@
+# Core bot (runAiBot.py) — Python 3.10+ recommended; 3.14+ may work but is less tested
+selenium>=4.0
+undetected-chromedriver>=3.5
+pyautogui>=0.9.54
+setuptools
+
+# Applied jobs UI (app.py)
+flask>=3.0
+flask-cors>=4.0
+
+# Optional: AI features (enable in config/secrets.py)
+openai>=1.0
+google-generativeai>=0.8.0
+
+# Optional: resume modules
+python-docx>=1.0
+fpdf2>=2.0
