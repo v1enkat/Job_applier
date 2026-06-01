@@ -63,6 +63,8 @@ failed_count = 0
 skip_count = 0
 dailyEasyApplyLimitReached = False
 
+active_search_terms: list[str] = []
+
 re_experience = re.compile(r'[(]?\s*(\d+)\s*[)]?\s*[-to]*\s*\d*[+]*\s*year[s]?', re.IGNORECASE)
 
 desired_salary_lakhs = str(round(desired_salary / 100000, 2))
@@ -90,10 +92,12 @@ def is_logged_in_LN() -> bool:
     Function to check if user is logged-in in LinkedIn
     * Returns: `True` if user is logged-in or `False` if not
     '''
-    if driver.current_url == "https://www.linkedin.com/feed/": return True
+    url = driver.current_url or ""
+    if "linkedin.com/feed" in url: return True
     if try_linkText(driver, "Sign in"): return False
-    if try_xp(driver, '//button[@type="submit" and contains(text(), "Sign in")]'):  return False
+    if try_xp(driver, '//button[@type="submit" and contains(., "Sign in")]', click=False): return False
     if try_linkText(driver, "Join now"): return False
+    if linkedin_login_form_visible(driver): return False
     print_lg("Didn't find Sign in link, so assuming user is logged in!")
     return True
 
@@ -105,42 +109,24 @@ def login_LN() -> None:
     * If failed, tries to login using saved LinkedIn profile button if available
     * If both failed, asks user to login manually
     '''
-    # Find the username and password fields and fill them with user credentials
     driver.get("https://www.linkedin.com/login")
     if username == "username@example.com" and password == "example_password":
         pyautogui.alert("User did not configure username and password in secrets.py, hence can't login automatically! Please login manually!", "Login Manually","Okay")
         print_lg("User did not configure username and password in secrets.py, hence can't login automatically! Please login manually!")
         manual_login_retry(is_logged_in_LN, 2)
         return
-    try:
-        wait.until(EC.presence_of_element_located((By.LINK_TEXT, "Forgot password?")))
+    dismiss_linkedin_cookie_banner(driver)
+    if not linkedin_login_fast(driver, username, password, 5):
         try:
-            text_input_by_ID(driver, "username", username, 1)
-        except Exception as e:
-            print_lg("Couldn't find username field.")
-            # print_lg(e)
-        try:
-            text_input_by_ID(driver, "password", password, 1)
-        except Exception as e:
-            print_lg("Couldn't find password field.")
-            # print_lg(e)
-        # Find the login submit button and click it
-        driver.find_element(By.XPATH, '//button[@type="submit" and contains(text(), "Sign in")]').click()
-    except Exception as e1:
-        try:
-            profile_button = find_by_class(driver, "profile__details")
-            profile_button.click()
-        except Exception as e2:
-            # print_lg(e1, e2)
-            print_lg("Couldn't Login!")
+            find_by_class(driver, "profile__details").click()
+        except Exception:
+            print_lg("Couldn't find Email or phone / Password fields, or Sign in button.")
 
     try:
-        # Wait until successful redirect, indicating successful login
-        wait.until(EC.url_to_be("https://www.linkedin.com/feed/")) # wait.until(EC.presence_of_element_located((By.XPATH, '//button[normalize-space(.)="Start a post"]')))
+        WebDriverWait(driver, 20).until(lambda d: "linkedin.com/feed" in (d.current_url or ""))
         return print_lg("Login successful!")
-    except Exception as e:
-        print_lg("Seems like login attempt failed! Possibly due to wrong credentials or already logged in! Try logging in manually!")
-        # print_lg(e)
+    except Exception:
+        print_lg("Seems like login attempt failed! Possibly due to wrong credentials, 2FA, captcha, or already logged in! Try logging in manually!")
         manual_login_retry(is_logged_in_LN, 2)
 #>
 
@@ -512,6 +498,24 @@ def is_company_name_question(label: str) -> bool:
     return False
 
 
+def is_job_title_question(label: str) -> bool:
+    '''True when the field asks for job title / role at current or recent employer.'''
+    label = label.lower()
+    if any(w in label for w in ('hear about', 'requisition', 'posting title', 'job you are applying')):
+        return False
+    if any(p in label for p in (
+        'job title', 'your title', 'position title', 'role title', 'current title',
+        'recent title', 'last title', 'most recent title', 'designation', 'job role',
+        'your role', 'title/role', 'title or role', 'title at', 'role at',
+    )):
+        return True
+    if label.strip() in ('title', 'role', 'position', 'designation'):
+        return True
+    if 'title' in label and any(w in label for w in ('current', 'recent', 'last', 'employer', 'company', 'position', 'job', 'work')):
+        return True
+    return False
+
+
 def is_experience_duration_question(label: str) -> bool:
     '''True for work-experience duration fields; excludes company name and salary fields.'''
     if is_company_name_question(label):
@@ -538,8 +542,104 @@ def get_experience_answer(label: str) -> str:
     return years_of_experience
 
 
+def match_dropdown_option_for_value(options: list[str], target: str, label: str) -> str | None:
+    '''Pick the dropdown option that best matches years/months of experience.'''
+    selectable = [
+        o for o in options
+        if o.strip() and o.strip().lower() not in ('select an option', 'select', 'choose', 'please select')
+    ]
+    if not selectable:
+        return None
+    try:
+        target_num = int(float(target))
+    except ValueError:
+        return None
+
+    label_l = label.lower()
+    is_months = 'month' in label_l
+    num_pattern = re.compile(rf'(?<!\d){re.escape(str(target_num))}(?!\d)')
+
+    if not is_months and target_num == 0:
+        for option in selectable:
+            opt_l = option.lower()
+            if any(p in opt_l for p in (
+                'less than 1', '0 year', '0 years', '< 1 year', 'no experience',
+                'none', 'zero year', 'fresh graduate', 'fresher',
+            )):
+                return option
+
+    exact_matches = [o for o in selectable if num_pattern.search(o)]
+    if exact_matches:
+        if is_months:
+            month_matches = [o for o in exact_matches if 'month' in o.lower()]
+            return month_matches[0] if month_matches else exact_matches[0]
+        year_matches = [o for o in exact_matches if 'year' in o.lower()]
+        return year_matches[0] if year_matches else exact_matches[0]
+
+    if not is_months:
+        scored: list[tuple[int, str]] = []
+        for option in selectable:
+            match = re.search(r'(\d+)', option)
+            if match:
+                scored.append((abs(int(match.group(1)) - target_num), option))
+        if scored:
+            return min(scored, key=lambda item: item[0])[1]
+    return None
+
+
+def select_dropdown_answer(select: Select, label: str, label_org: str, optionsText: list[str], default_answer: str = 'Yes') -> str:
+    '''Select the best dropdown option; never random-guess experience fields.'''
+    label_l = label.lower()
+    if is_experience_duration_question(label_l):
+        target = get_experience_answer(label_l)
+        answer = match_dropdown_option_for_value(optionsText, target, label_l) or target
+    elif is_job_title_question(label_l):
+        answer = current_job_title
+    else:
+        answer = answer_common_questions(label_l, default_answer)
+
+    try:
+        select.select_by_visible_text(answer)
+        return answer
+    except NoSuchElementException:
+        if is_experience_duration_question(label_l):
+            matched = match_dropdown_option_for_value(optionsText, get_experience_answer(label_l), label_l)
+            if matched:
+                select.select_by_visible_text(matched)
+                return matched
+            print_lg(f'Could not match experience dropdown for "{label_org}". Expected ~{get_experience_answer(label_l)}. Leaving default.')
+            return select.first_selected_option.text
+
+        possible_answer_phrases = []
+        if answer == 'Decline':
+            possible_answer_phrases = ["Decline", "not wish", "don't wish", "Prefer not", "not want"]
+        elif 'yes' in answer.lower():
+            possible_answer_phrases = ["Yes", "Agree", "I do", "I have"]
+        elif 'no' in answer.lower():
+            possible_answer_phrases = ["No", "Disagree", "I don't", "I do not"]
+        else:
+            possible_answer_phrases = [answer, answer.lower(), answer.upper(), ''.join(c for c in answer if c.isalnum())]
+
+        for phrase in possible_answer_phrases:
+            for option in optionsText:
+                if phrase.lower() in option.lower() or option.lower() in phrase.lower():
+                    select.select_by_visible_text(option)
+                    return option
+
+        if is_experience_duration_question(label_l) or is_job_title_question(label_l):
+            print_lg(f'Failed required field "{label_org}". Not selecting a random option.')
+            return select.first_selected_option.text
+
+        print_lg(f'Failed to find an option with text "{answer}" for question labelled "{label_org}", answering randomly!')
+        select.select_by_index(randint(1, len(select.options) - 1))
+        randomly_answered_questions.add((f'{label_org} [ {optionsText} ]', "select"))
+        return select.first_selected_option.text
+
+
 def get_text_answer_fallback(label: str) -> str:
     '''Safe fallback when AI is off or fails — avoids filling "0" into company or wrong URLs.'''
+    if is_job_title_question(label):
+        return current_job_title
     if is_company_name_question(label):
         return recent_employer
     if is_experience_duration_question(label):
@@ -571,10 +671,12 @@ def sanitize_text_answer(label: str, answer: str) -> str:
         if match:
             num = float(match.group())
             if 'month' in label_l:
-                if num > 12:
+                if num != months_of_experience:
                     return str(months_of_experience)
-            elif num >= 2:
+            elif num != float(years_of_experience):
                 return get_experience_answer(label_l)
+    if is_job_title_question(label_l) and not answer.strip():
+        return current_job_title
     return answer
 
 
@@ -635,43 +737,10 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                         answer = current_city if current_city else work_location
                     else:
                         answer = work_location
-                else: 
-                    answer = answer_common_questions(label,answer)
-                try: 
-                    select.select_by_visible_text(answer)
-                except NoSuchElementException as e:
-                    # Define similar phrases for common answers
-                    possible_answer_phrases = []
-                    if answer == 'Decline':
-                        possible_answer_phrases = ["Decline", "not wish", "don't wish", "Prefer not", "not want"]
-                    elif 'yes' in answer.lower():
-                        possible_answer_phrases = ["Yes", "Agree", "I do", "I have"]
-                    elif 'no' in answer.lower():
-                        possible_answer_phrases = ["No", "Disagree", "I don't", "I do not"]
-                    else:
-                        # Try partial matching for any answer
-                        possible_answer_phrases = [answer]
-                        # Add lowercase and uppercase variants
-                        possible_answer_phrases.append(answer.lower())
-                        possible_answer_phrases.append(answer.upper())
-                        # Try without special characters
-                        possible_answer_phrases.append(''.join(c for c in answer if c.isalnum()))
-                    ##<
-                    foundOption = False
-                    for phrase in possible_answer_phrases:
-                        for option in optionsText:
-                            # Check if phrase is in option or option is in phrase (bidirectional matching)
-                            if phrase.lower() in option.lower() or option.lower() in phrase.lower():
-                                select.select_by_visible_text(option)
-                                answer = option
-                                foundOption = True
-                                break
-                    if not foundOption:
-                        #TODO: Use AI to answer the question need to be implemented logic to extract the options for the question
-                        print_lg(f'Failed to find an option with text "{answer}" for question labelled "{label_org}", answering randomly!')
-                        select.select_by_index(randint(1, len(select.options)-1))
-                        answer = select.first_selected_option.text
-                        randomly_answered_questions.add((f'{label_org} [ {options} ]',"select"))
+                else:
+                    answer = select_dropdown_answer(select, label, label_org, optionsText)
+            else:
+                answer = selected_option
             questions_list.add((f'{label_org} [ {options} ]', answer, "select", prev_answer))
             continue
         
@@ -702,6 +771,10 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
                 elif 'veteran' in label or 'protected' in label: answer = veteran_status
                 elif 'disability' in label or 'handicapped' in label: 
                     answer = disability_status
+                elif is_experience_duration_question(label):
+                    answer = get_experience_answer(label)
+                elif is_job_title_question(label):
+                    answer = current_job_title
                 else: answer = answer_common_questions(label,answer)
                 foundOption = try_xp(radio, f".//label[normalize-space()='{answer}']", False)
                 if foundOption: 
@@ -746,6 +819,7 @@ def answer_questions(modal: WebElement, questions_list: set, work_location: str,
             prev_answer = text.get_attribute("value")
             if not prev_answer or overwrite_previous_answers:
                 if is_company_name_question(label): answer = recent_employer
+                elif is_job_title_question(label): answer = current_job_title
                 elif is_experience_duration_question(label): answer = get_experience_answer(label)
                 elif 'phone' in label or 'mobile' in label: answer = phone_number
                 elif 'permanent' in label:
@@ -1030,6 +1104,65 @@ def discard_job() -> None:
 
 
 # Function to apply to jobs
+def prompt_search_role_selection(roles: list[str]) -> list[str]:
+    '''
+    Ask which job role(s) to search before the bot starts applying.
+    Press Enter for default_search_role (Software Engineer by default).
+    '''
+    default = default_search_role if default_search_role in roles else roles[0]
+    print_lg("\n" + "=" * 60)
+    print_lg("Select job role(s) for this run")
+    print_lg("=" * 60)
+    print_lg(f"  [Enter]  {default} only  (default)")
+    for index, role in enumerate(roles, start=1):
+        marker = "  <-- default" if role == default else ""
+        print_lg(f"  {index}. {role}{marker}")
+    print_lg(f"  A. All roles ({len(roles)} searches this cycle)")
+    print_lg("  M. Multiple roles — type numbers like 1,3,5")
+    print_lg("=" * 60)
+
+    while True:
+        try:
+            choice = input("\nYour choice: ").strip()
+        except EOFError:
+            choice = ""
+
+        if choice == "":
+            selected = [default]
+            break
+        if choice.lower() in {"a", "all"}:
+            selected = list(roles)
+            break
+        if choice.lower() in {"m", "multi", "multiple"}:
+            try:
+                picks = input("Enter role numbers (e.g. 1,3,5): ").strip()
+            except EOFError:
+                picks = "1"
+            if not picks:
+                selected = [default]
+                break
+            try:
+                indices = [int(part.strip()) for part in picks.split(",") if part.strip()]
+                selected = [roles[i - 1] for i in indices if 1 <= i <= len(roles)]
+                if selected:
+                    break
+            except (ValueError, IndexError):
+                pass
+            print_lg("Invalid numbers. Try again (example: 1,3,5).")
+            continue
+        if choice.isdigit():
+            index = int(choice)
+            if 1 <= index <= len(roles):
+                selected = [roles[index - 1]]
+                break
+            print_lg(f"Enter a number between 1 and {len(roles)}, or press Enter for default.")
+            continue
+        print_lg('Invalid input. Press Enter, a number, "A" for all, or "M" for multiple.')
+
+    print_lg(f"\n>>> Searching for: {', '.join(selected)}\n")
+    return selected
+
+
 def apply_to_jobs(search_terms: list[str]) -> None:
     applied_jobs = get_applied_job_ids()
     rejected_jobs = set()
@@ -1321,7 +1454,9 @@ def run(total_runs: int) -> int:
     print_lg(f"Date and Time: {datetime.now()}")
     print_lg(f"Cycle number: {total_runs}")
     print_lg(f"Currently looking for jobs posted within '{date_posted}' and sorting them by '{sort_by}'")
-    apply_to_jobs(search_terms)
+    terms = active_search_terms if active_search_terms else search_terms
+    print_lg(f"Active search role(s): {', '.join(terms)}")
+    apply_to_jobs(terms)
     print_lg("########################################################################################################################\n")
     if not dailyEasyApplyLimitReached:
         print_lg("Sleeping for 10 min...")
@@ -1342,6 +1477,12 @@ def main() -> None:
         global linkedIn_tab, tabs_count, useNewResume, aiClient
         alert_title = "Error Occurred. Closing Browser!"
         validate_config()
+
+        global active_search_terms
+        if prompt_role_selection_at_start:
+            active_search_terms = prompt_search_role_selection(search_terms)
+        else:
+            active_search_terms = list(search_terms)
         
         if not os.path.exists(default_resume_path):
             pyautogui.alert(text='Your default resume "{}" is missing! Please update it\'s folder path "default_resume_path" in config.py\n\nOR\n\nAdd a resume with exact name and path (check for spelling mistakes including cases).\n\n\nFor now the bot will continue using your previous upload from LinkedIn!'.format(default_resume_path), title="Missing Resume", button="OK")

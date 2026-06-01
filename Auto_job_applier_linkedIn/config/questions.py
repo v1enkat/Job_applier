@@ -113,8 +113,10 @@ LinkedIn: https://www.linkedin.com/in/venkat-manikantha-6b78a9287/
 GitHub: https://github.com/v1enkat
 
 IMPORTANT FOR NUMERIC QUESTIONS:
-- Total professional work experience: 5 months (started 05 Feb 2026). For "years of experience" answer 0 or less than 1 year, NEVER 12, 15, or 25.
+- Total professional work experience: 5 months (started 05 Feb 2026). For "years of experience" answer 0 or less than 1 year, NEVER 12, 15, 25, or 30.
+- For "months of experience" answer 5 only.
 - Current employer name: Amdocs (exact spelling). Never answer 0 for company name.
+- Current job title / role at Amdocs: Software Engineer (exact spelling).
 - Portfolio/website/GitHub URL: https://github.com/v1enkat only.
 
 Headline: Software Engineer at Amdocs; B.Tech ECE, NIT Agartala (2022–2026).
@@ -154,6 +156,9 @@ Note: If left empty as "", the tool will not answer the question. However, note 
 
 # Name of your most recent employer (must match how you list it on LinkedIn if possible)
 recent_employer = "Amdocs" # "", "Lala Company", "Google", "Snowflake", "Databricks"
+
+# Your current / most recent job title at the employer above
+current_job_title = "Software Engineer"
 
 # Example question: "On a scale of 1-10 how much experience do you have building web or mobile applications? 1 being very little or only in school, 10 being that you have built and launched applications to real users"
 confidence_level = "8"             # Any number between "1" to "10" including 1 and 10, put it in quotes ""

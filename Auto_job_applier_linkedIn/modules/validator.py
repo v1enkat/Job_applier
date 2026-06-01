@@ -87,6 +87,7 @@ def validate_questions() -> None | ValueError | TypeError:
     check_string(linkedin_summary, "linkedin_summary")
     check_string(cover_letter, "cover_letter")
     check_string(recent_employer, "recent_employer")
+    check_string(current_job_title, "current_job_title")
     check_string(confidence_level, "confidence_level")
 
     check_boolean(pause_before_submit, "pause_before_submit")
@@ -103,6 +104,10 @@ def validate_search() -> None | ValueError | TypeError:
     __validation_file_path = "config/search.py"
 
     check_list(search_terms, "search_terms", min_length=1)
+    check_string(default_search_role, "default_search_role")
+    if default_search_role and default_search_role not in search_terms:
+        raise ValueError(f'Invalid value for default_search_role = "{default_search_role}". Pick one from search_terms in config/search.py')
+    check_boolean(prompt_role_selection_at_start, "prompt_role_selection_at_start")
     check_string(search_location, "search_location")
     check_int(switch_number, "switch_number", 1)
     check_boolean(randomize_search_order, "randomize_search_order")

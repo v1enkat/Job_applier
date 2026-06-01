@@ -108,6 +108,55 @@ def text_input_by_ID(driver: WebDriver, id: str, value: str, time: float=5.0) ->
     username_field.send_keys(Keys.CONTROL + "a")
     username_field.send_keys(value)
 
+# LinkedIn login: "Email or phone" + Password on one page (secrets.py `username` = your email)
+_LINKEDIN_EMAIL_XPATH = (
+    "//input[@id='username' or @id='session_key' or @name='session_key'"
+    " or contains(@placeholder,'Email') or contains(@aria-label,'Email or phone')"
+    " or contains(@aria-label,'email or phone')]"
+)
+_LINKEDIN_PASSWORD_XPATH = (
+    "//input[@id='password' or @id='session_password' or @name='session_password']"
+)
+_LINKEDIN_SIGN_IN_XPATH = "//button[@type='submit' and contains(., 'Sign in')] | //button[@type='submit']"
+
+def _linkedin_fill_input(field: WebElement, value: str) -> None:
+    field.click()
+    field.send_keys(Keys.CONTROL + "a")
+    field.send_keys(value)
+
+def linkedin_login_form_visible(driver: WebDriver) -> bool:
+    try:
+        return bool(driver.find_element(By.XPATH, _LINKEDIN_EMAIL_XPATH).is_displayed())
+    except Exception:
+        return False
+
+def linkedin_login_fast(driver: WebDriver, email: str, password: str, wait_sec: float = 5.0) -> bool:
+    '''
+    Fill LinkedIn login: Email or phone (top) + Password (below), then Sign in.
+    `email` is the value from secrets.py `username` (your email address).
+    '''
+    try:
+        email_field = WebDriverWait(driver, wait_sec).until(
+            EC.element_to_be_clickable((By.XPATH, _LINKEDIN_EMAIL_XPATH))
+        )
+        _linkedin_fill_input(email_field, email)
+        pwd_field = WebDriverWait(driver, wait_sec).until(
+            EC.element_to_be_clickable((By.XPATH, _LINKEDIN_PASSWORD_XPATH))
+        )
+        _linkedin_fill_input(pwd_field, password)
+        WebDriverWait(driver, wait_sec).until(
+            EC.element_to_be_clickable((By.XPATH, _LINKEDIN_SIGN_IN_XPATH))
+        ).click()
+        return True
+    except Exception:
+        return False
+
+def dismiss_linkedin_cookie_banner(driver: WebDriver) -> None:
+    try:
+        driver.find_element(By.XPATH, '//button[contains(.,"Accept")]').click()
+    except Exception:
+        pass
+
 def try_xp(driver: WebDriver, xpath: str, click: bool=True) -> WebElement | bool:
     try:
         if click:

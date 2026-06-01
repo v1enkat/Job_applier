@@ -101,12 +101,13 @@ Respond concisely based on the type of question:
 
 1. **Years / months of work experience** (total or professional, NOT education length, NOT age, NOT "years using X tool"):
    - If the question mentions **months**, return only the month count from User Information (e.g. "5").
-   - If the question mentions **years** (total/professional experience), return only the years value from User Information (e.g. "0" for less than one year). Never inflate to 10+ unless the question is specifically about a named skill duration listed in User Information.
+   - If the question mentions **years** (total/professional experience), return only the years value from User Information (e.g. "0" for less than one year). Never answer 10, 15, 25, or 30 unless explicitly true in User Information.
 2. **Current / previous company or employer name**: return the exact employer name from User Information (e.g. "Amdocs"). Never return "0", a number, or a URL.
-3. **Website, portfolio, GitHub, or profile link**: use only the user's GitHub/LinkedIn/website from User Information. Never use repository URLs for job-application bots or tools.
-4. If the question is **Yes/No**, return only "Yes" or "No".
-5. Short text → one sentence; longer → under 350 characters, human-like.
-6. Do **not** repeat the question in your answer.
+3. **Current job title / role at employer**: return "Software Engineer" from User Information when asked for title, role, designation, or position at company.
+4. **Website, portfolio, GitHub, or profile link**: use only the user's GitHub/LinkedIn/website from User Information. Never use repository URLs for job-application bots or tools.
+5. If the question is **Yes/No**, return only "Yes" or "No".
+6. Short text → one sentence; longer → under 350 characters, human-like.
+7. Do **not** repeat the question in your answer.
 
 **User Information:**
 {}
