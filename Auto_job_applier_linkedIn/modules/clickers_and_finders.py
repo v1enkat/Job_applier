@@ -108,54 +108,82 @@ def text_input_by_ID(driver: WebDriver, id: str, value: str, time: float=5.0) ->
     username_field.send_keys(Keys.CONTROL + "a")
     username_field.send_keys(value)
 
-# LinkedIn login: "Email or phone" + Password on one page (secrets.py `username` = your email)
+# LinkedIn login (legacy ids + 2025+ React form with type=email/password only)
 _LINKEDIN_EMAIL_XPATH = (
     "//input[@id='username' or @id='session_key' or @name='session_key'"
     " or contains(@placeholder,'Email') or contains(@aria-label,'Email or phone')"
-    " or contains(@aria-label,'email or phone')]"
+    " or contains(@aria-label,'email or phone') or @type='email']"
 )
 _LINKEDIN_PASSWORD_XPATH = (
-    "//input[@id='password' or @id='session_password' or @name='session_password']"
+    "//input[@id='password' or @id='session_password' or @name='session_password'"
+    " or @type='password']"
 )
-_LINKEDIN_SIGN_IN_XPATH = "//button[@type='submit' and contains(., 'Sign in')] | //button[@type='submit']"
 
 def _linkedin_fill_input(field: WebElement, value: str) -> None:
     field.click()
     field.send_keys(Keys.CONTROL + "a")
     field.send_keys(value)
 
-def linkedin_login_form_visible(driver: WebDriver) -> bool:
-    try:
-        return bool(driver.find_element(By.XPATH, _LINKEDIN_EMAIL_XPATH).is_displayed())
-    except Exception:
-        return False
+def _linkedin_first_visible(driver: WebDriver, xpath: str) -> WebElement | None:
+    for el in driver.find_elements(By.XPATH, xpath):
+        try:
+            if el.is_displayed() and el.is_enabled():
+                return el
+        except Exception:
+            pass
+    return None
 
-def linkedin_login_fast(driver: WebDriver, email: str, password: str, wait_sec: float = 5.0) -> bool:
+def _linkedin_wait_visible(driver: WebDriver, xpath: str, wait_sec: float) -> WebElement:
+    return WebDriverWait(driver, wait_sec).until(lambda d: _linkedin_first_visible(d, xpath))
+
+def _linkedin_wait_sign_in_button(driver: WebDriver, wait_sec: float) -> WebElement:
+    def _find(drv: WebDriver) -> WebElement | bool:
+        for xpath in (
+            "(//button[normalize-space()='Sign in'])[last()]",
+            "//button[@type='submit' and contains(., 'Sign in')]",
+            "//button[@type='submit']",
+        ):
+            el = _linkedin_first_visible(drv, xpath)
+            if el:
+                return el
+        return False
+    return WebDriverWait(driver, wait_sec).until(_find)
+
+def linkedin_login_form_visible(driver: WebDriver) -> bool:
+    return _linkedin_first_visible(driver, _LINKEDIN_EMAIL_XPATH) is not None
+
+def linkedin_wait_for_login_page(driver: WebDriver, wait_sec: float = 15.0) -> None:
+    WebDriverWait(driver, wait_sec).until(lambda d: d.execute_script("return document.readyState") == "complete")
+    _linkedin_wait_visible(driver, _LINKEDIN_EMAIL_XPATH, wait_sec)
+
+def linkedin_login_fast(driver: WebDriver, email: str, password: str, wait_sec: float = 15.0) -> bool:
     '''
     Fill LinkedIn login: Email or phone (top) + Password (below), then Sign in.
     `email` is the value from secrets.py `username` (your email address).
     '''
     try:
-        email_field = WebDriverWait(driver, wait_sec).until(
-            EC.element_to_be_clickable((By.XPATH, _LINKEDIN_EMAIL_XPATH))
-        )
-        _linkedin_fill_input(email_field, email)
-        pwd_field = WebDriverWait(driver, wait_sec).until(
-            EC.element_to_be_clickable((By.XPATH, _LINKEDIN_PASSWORD_XPATH))
-        )
-        _linkedin_fill_input(pwd_field, password)
-        WebDriverWait(driver, wait_sec).until(
-            EC.element_to_be_clickable((By.XPATH, _LINKEDIN_SIGN_IN_XPATH))
-        ).click()
+        linkedin_wait_for_login_page(driver, wait_sec)
+        _linkedin_fill_input(_linkedin_wait_visible(driver, _LINKEDIN_EMAIL_XPATH, wait_sec), email)
+        _linkedin_fill_input(_linkedin_wait_visible(driver, _LINKEDIN_PASSWORD_XPATH, wait_sec), password)
+        _linkedin_wait_sign_in_button(driver, wait_sec).click()
         return True
     except Exception:
         return False
 
 def dismiss_linkedin_cookie_banner(driver: WebDriver) -> None:
-    try:
-        driver.find_element(By.XPATH, '//button[contains(.,"Accept")]').click()
-    except Exception:
-        pass
+    for xpath in (
+        '//button[contains(.,"Accept")]',
+        '//button[contains(.,"Accept &")]',
+        '//button[@action-type="ACCEPT"]',
+    ):
+        try:
+            btn = _linkedin_first_visible(driver, xpath)
+            if btn:
+                btn.click()
+                buffer(0.5)
+                return
+        except Exception:
+            pass
 
 def try_xp(driver: WebDriver, xpath: str, click: bool=True) -> WebElement | bool:
     try:

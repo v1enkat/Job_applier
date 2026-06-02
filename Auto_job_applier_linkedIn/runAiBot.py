@@ -95,6 +95,7 @@ def is_logged_in_LN() -> bool:
     url = driver.current_url or ""
     if "linkedin.com/feed" in url: return True
     if try_linkText(driver, "Sign in"): return False
+    if try_xp(driver, "(//button[normalize-space()='Sign in'])[last()]", click=False): return False
     if try_xp(driver, '//button[@type="submit" and contains(., "Sign in")]', click=False): return False
     if try_linkText(driver, "Join now"): return False
     if linkedin_login_form_visible(driver): return False
@@ -116,7 +117,7 @@ def login_LN() -> None:
         manual_login_retry(is_logged_in_LN, 2)
         return
     dismiss_linkedin_cookie_banner(driver)
-    if not linkedin_login_fast(driver, username, password, 5):
+    if not linkedin_login_fast(driver, username, password, 15):
         try:
             find_by_class(driver, "profile__details").click()
         except Exception:
@@ -1474,7 +1475,7 @@ linkedIn_tab = False
 def main() -> None:
     total_runs = 1
     try:
-        global linkedIn_tab, tabs_count, useNewResume, aiClient
+        global linkedIn_tab, tabs_count, useNewResume, aiClient, driver, actions, wait, options
         alert_title = "Error Occurred. Closing Browser!"
         validate_config()
 
@@ -1488,9 +1489,9 @@ def main() -> None:
             pyautogui.alert(text='Your default resume "{}" is missing! Please update it\'s folder path "default_resume_path" in config.py\n\nOR\n\nAdd a resume with exact name and path (check for spelling mistakes including cases).\n\n\nFor now the bot will continue using your previous upload from LinkedIn!'.format(default_resume_path), title="Missing Resume", button="OK")
             useNewResume = False
         
-        # Login to LinkedIn
+        # Open Chrome and login to LinkedIn (deferred until config/prompts are done)
+        options, driver, actions, wait = init_chrome()
         tabs_count = len(driver.window_handles)
-        driver.get("https://www.linkedin.com/login")
         if not is_logged_in_LN(): login_LN()
         
         linkedIn_tab = driver.current_window_handle
